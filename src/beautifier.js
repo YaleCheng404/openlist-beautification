@@ -1,7 +1,13 @@
-// v7
+// v8
 
 // 提供用来监听代码控制的 url 变化的事件
 (() => {
+    if (window.__beautifierHistoryPatched) {
+        return;
+    }
+
+    window.__beautifierHistoryPatched = true;
+
     const wrapHistoryMethod = (type) => {
         const orig = history[type];
         return function (...args) {
@@ -40,12 +46,7 @@ class Beautifier {
         'svg' // SVG 图标
     ];
 
-    static getSelector(mainSelector) {
-        return `${mainSelector} :not(${Beautifier.ignoredSelectors.join('):not(')})`;
-    }
-
-    static lightSelector = Beautifier.getSelector('.hope-ui-light');
-    static darkSelector = Beautifier.getSelector('.hope-ui-dark');
+    static ignoredSelector = Beautifier.ignoredSelectors.join(',');
 
     static lightBgColor = 'rgba(255, 255, 255, 0.8)';
     static darkBgColor = 'rgb(32, 36, 37)';
@@ -54,48 +55,134 @@ class Beautifier {
 
     constructor() {
         this.observer = null;
+        this.frameId = 0;
+        this.pendingElements = new Set();
+        this.handleMutations = this.handleMutations.bind(this);
     }
 
-    /**
-     * @param {'light'|'dark'} theme
-     */
-    #rewriteStyle(theme) {
-        let selector = theme === 'light' ? Beautifier.lightSelector : Beautifier.darkSelector;
-        let bgColor = theme === 'light' ? Beautifier.lightBgColor : Beautifier.darkBgColor;
-
-        document.querySelectorAll(selector).forEach(element => {
-            const computedStyle = getComputedStyle(element);
-
-            if (computedStyle.backgroundColor !== 'rgba(0, 0, 0, 0)' &&
-                !computedStyle.backgroundColor.startsWith(Beautifier.specificPrefix)) {
-                element.style.backgroundColor = bgColor;
-
-                element.setAttribute('data-beautified', 'true');
-            }
-        });
+    shouldBeautifyPath() {
+        return !location.pathname.startsWith('/@manage') && !location.pathname.startsWith('/@login');
     }
 
-    #beautify() {
-        if (!location.pathname.startsWith('/@manage') && !location.pathname.startsWith('/@login')) {
-            this.#rewriteStyle('light');
-            this.#rewriteStyle('dark');
+    getTheme(element) {
+        if (element.closest('.hope-ui-light')) {
+            return 'light';
+        }
+
+        if (element.closest('.hope-ui-dark')) {
+            return 'dark';
+        }
+
+        return '';
+    }
+
+    shouldIgnore(element) {
+        return element.matches(Beautifier.ignoredSelector) || Boolean(element.closest(Beautifier.ignoredSelector));
+    }
+
+    rewriteElement(element) {
+        if (!(element instanceof Element) || element.matches('.hope-ui-light, .hope-ui-dark') || this.shouldIgnore(element)) {
+            return;
+        }
+
+        const theme = this.getTheme(element);
+
+        if (!theme) {
+            return;
+        }
+
+        const bgColor = theme === 'light' ? Beautifier.lightBgColor : Beautifier.darkBgColor;
+
+        if (element.dataset.beautifierTheme === theme && element.style.backgroundColor === bgColor) {
+            return;
+        }
+
+        const { backgroundColor } = getComputedStyle(element);
+
+        if (backgroundColor !== 'rgba(0, 0, 0, 0)' && !backgroundColor.startsWith(Beautifier.specificPrefix)) {
+            element.style.backgroundColor = bgColor;
+            element.dataset.beautified = 'true';
+            element.dataset.beautifierTheme = theme;
         }
     }
 
+    rewriteSubtree(root) {
+        if (!(root instanceof Element)) {
+            return;
+        }
+
+        this.rewriteElement(root);
+        root.querySelectorAll('*').forEach(element => this.rewriteElement(element));
+    }
+
+    schedule(root = document.body) {
+        if (!root || !this.shouldBeautifyPath()) {
+            return;
+        }
+
+        this.pendingElements.add(root);
+
+        if (!this.frameId) {
+            this.frameId = requestAnimationFrame(() => {
+                this.frameId = 0;
+
+                if (!this.shouldBeautifyPath()) {
+                    this.pendingElements.clear();
+                    return;
+                }
+
+                const roots = [...this.pendingElements];
+                this.pendingElements.clear();
+                roots.forEach(element => this.rewriteSubtree(element));
+            });
+        }
+    }
+
+    handleMutations(records) {
+        records.forEach(record => {
+            if (record.type === 'attributes') {
+                this.schedule(record.target);
+                return;
+            }
+
+            record.addedNodes.forEach(node => {
+                if (node instanceof Element) {
+                    this.schedule(node);
+                }
+            });
+        });
+    }
+
     observe() {
-        this.observer = new MutationObserver(this.#beautify.bind(this));
+        if (!document.body) {
+            return;
+        }
+
+        this.disconnect();
+
+        this.observer = new MutationObserver(this.handleMutations);
         this.observer.observe(document.body, {
+            attributes: true,
+            attributeFilter: ['class'],
             childList: true,
             subtree: true
         });
 
-        this.#beautify();
+        this.schedule();
     }
 
     disconnect() {
         if (this.observer) {
             this.observer.disconnect();
+            this.observer = null;
         }
+
+        if (this.frameId) {
+            cancelAnimationFrame(this.frameId);
+            this.frameId = 0;
+        }
+
+        this.pendingElements.clear();
     }
 
     undo() {
@@ -105,6 +192,7 @@ class Beautifier {
             element.style.backgroundColor = '';
 
             element.removeAttribute('data-beautified');
+            element.removeAttribute('data-beautifier-theme');
         });
     }
 }
