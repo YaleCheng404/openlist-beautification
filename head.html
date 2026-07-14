@@ -1,57 +1,29 @@
-<!-- v6 -->
+<!-- v9 -->
 
-<!-- 引入自定义字体 -->
-<link rel="preconnect" href="https://s4.zstatic.net" crossorigin>
+<!-- LXGW WenKai Webfont 1.7.0 -->
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="preconnect" href="https://cdn.mmoe.work">
-<link rel="stylesheet" href="https://s4.zstatic.net/ajax/libs/lxgw-wenkai-webfont/1.7.0/lxgwwenkai-regular.min.css" media="print" onload="this.media='all'">
-<noscript>
-    <link rel="stylesheet" href="https://s4.zstatic.net/ajax/libs/lxgw-wenkai-webfont/1.7.0/lxgwwenkai-regular.min.css">
-</noscript>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lxgw-wenkai-webfont@1.7.0/lxgwwenkai-regular.css">
 
 <style>
-    /* 移除原生视频控件 */
     video::-webkit-media-controls {
         display: none;
     }
 
-    /* 设置背景图片样式 */
     body {
-        background-repeat: no-repeat;
-        background-size: cover;
-        background-attachment: fixed;
-        background-position: center;
+        background: center / cover no-repeat fixed;
     }
 
-    /* 在此处的url()里修改背景图片地址 */
-    /* 加了个深色遮罩，爱护你的眼睛 */
     body.hope-ui-dark {
         background-color: rgb(32, 36, 37);
-        background-image: linear-gradient(rgba(32, 36, 37, 0.7), rgba(32, 36, 37, 0.7)), url('https://cdn.mmoe.work/img/miku.webp');
+        background-image: linear-gradient(rgba(32, 36, 37, 0.7), rgba(32, 36, 37, 0.7)), url("https://cdn.mmoe.work/img/miku.webp");
     }
 
-    /* 在此处的url()里修改背景图片地址 */
     body.hope-ui-light {
-        background-image: url('https://cdn.mmoe.work/img/miku.webp');
+        background-image: url("https://cdn.mmoe.work/img/miku.webp");
     }
 
-    /* 统一站点公告的样式 */
-    .hope-ui-light .hope-c-PJLV-ikJQsXT-css {
-        background: rgba(255, 255, 255, 0.8) !important;
-        backdrop-filter: blur(0) !important;
-    }
-
-    .hope-ui-dark .hope-c-PJLV-ikJQsXT-css {
-        background: rgb(32, 36, 37) !important;
-        backdrop-filter: blur(0) !important;
-    }
-
-    /* 自定义字体 */
-    html,
-    body,
-    button,
-    input,
-    textarea,
-    select {
+    :where(html, body, button, input, textarea, select) {
         font-family: "LXGW WenKai", sans-serif;
     }
 

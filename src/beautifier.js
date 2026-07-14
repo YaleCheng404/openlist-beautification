@@ -1,222 +1,157 @@
-// v8
+// v9
 
-// 提供用来监听代码控制的 url 变化的事件
-(() => {
-    if (window.__beautifierHistoryPatched) {
-        return;
-    }
+const THEME_SELECTOR = '.hope-ui-light, .hope-ui-dark';
+const IGNORED_SELECTOR = [
+    '.hope-tooltip',
+    '.hope-tooltip__arrow',
+    '.hope-checkbox__control',
+    '.hope-modal__overlay',
+    '.hope-drawer__overlay',
+    '.hope-select__option',
+    '.monaco-editor',
+    '.art-video-player',
+    'button:not(.hope-menu__trigger)',
+    'svg'
+].join(',');
+const COLORS = {
+    light: 'rgba(255, 255, 255, 0.8)',
+    dark: 'rgb(32, 36, 37)'
+};
+const EXCLUDED_PATHS = ['/@manage', '/@login'];
 
+if (!window.__beautifierHistoryPatched) {
     window.__beautifierHistoryPatched = true;
 
-    const wrapHistoryMethod = (type) => {
-        const orig = history[type];
-        return function (...args) {
-            const rv = orig.apply(this, args);
-            const event = new CustomEvent(type, { detail: args });
-            window.dispatchEvent(event);
-            return rv;
+    for (const method of ['pushState', 'replaceState']) {
+        const original = history[method];
+        history[method] = function (...args) {
+            const result = original.apply(this, args);
+            dispatchEvent(new Event('beautifier:navigate'));
+            return result;
         };
-    };
-    history.pushState = wrapHistoryMethod('pushState');
-    history.replaceState = wrapHistoryMethod('replaceState');
-})();
+    }
+}
 
 class Beautifier {
-    /**
-        * Beautifier 类用于美化页面背景色
-        * 
-        * 其提供了3个方法：
-        * - observe: 开始监听页面变化并美化背景色
-        * - disconnect: 停止监听页面变化
-        * - undo: 恢复页面背景色到默认状态
-        *
-        * 可以通过window.beautifier访问实例对象
-        * 
-     */
-    static ignoredSelectors = [
-        '.hope-tooltip', // 提示小标签及其装饰
-        '.hope-tooltip__arrow',
-        '.hope-checkbox__control',// 复选框
-        '.hope-modal__overlay', // 模态框遮罩 
-        '.hope-drawer__overlay', // 抽屉遮罩
-        '.hope-select__option', // 下拉选项
-        '.monaco-editor, .monaco-editor *', // 代码编辑器
-        '.art-video-player, .art-video-player *', // 视频播放器
-        'button:not(.hope-menu__trigger)', // 除目录外按钮
-        'svg' // SVG 图标
-    ];
-
-    static ignoredSelector = Beautifier.ignoredSelectors.join(',');
-
-    static lightBgColor = 'rgba(255, 255, 255, 0.8)';
-    static darkBgColor = 'rgb(32, 36, 37)';
-
-    static specificPrefix = 'rgba(132, 133, 141,';
-
     constructor() {
-        this.observer = null;
-        this.frameId = 0;
-        this.pendingElements = new Set();
-        this.handleMutations = this.handleMutations.bind(this);
+        this.frame = 0;
+        this.pending = new Set();
+        this.observer = new MutationObserver(records => {
+            for (const record of records) {
+                if (record.type === 'attributes') {
+                    this.schedule(record.target);
+                    continue;
+                }
+
+                for (const node of record.addedNodes) {
+                    this.schedule(node);
+                }
+            }
+        });
     }
 
-    shouldBeautifyPath() {
-        return !location.pathname.startsWith('/@manage') && !location.pathname.startsWith('/@login');
+    isEnabled() {
+        return EXCLUDED_PATHS.every(path => !location.pathname.startsWith(path));
     }
 
-    getTheme(element) {
-        if (element.closest('.hope-ui-light')) {
-            return 'light';
-        }
-
-        if (element.closest('.hope-ui-dark')) {
-            return 'dark';
-        }
-
-        return '';
-    }
-
-    shouldIgnore(element) {
-        return element.matches(Beautifier.ignoredSelector) || Boolean(element.closest(Beautifier.ignoredSelector));
-    }
-
-    rewriteElement(element) {
-        if (!(element instanceof Element) || element.matches('.hope-ui-light, .hope-ui-dark') || this.shouldIgnore(element)) {
+    rewrite(element) {
+        if (!(element instanceof Element) || element.matches(THEME_SELECTOR) || element.closest(IGNORED_SELECTOR)) {
             return;
         }
 
-        const theme = this.getTheme(element);
-
-        if (!theme) {
+        const themeRoot = element.closest(THEME_SELECTOR);
+        if (!themeRoot) {
             return;
         }
 
-        const bgColor = theme === 'light' ? Beautifier.lightBgColor : Beautifier.darkBgColor;
-
-        if (element.dataset.beautifierTheme === theme && element.style.backgroundColor === bgColor) {
+        const theme = themeRoot.classList.contains('hope-ui-light') ? 'light' : 'dark';
+        const color = COLORS[theme];
+        if (element.dataset.beautifierTheme === theme && element.style.backgroundColor === color) {
             return;
         }
 
-        const { backgroundColor } = getComputedStyle(element);
-
-        if (backgroundColor !== 'rgba(0, 0, 0, 0)' && !backgroundColor.startsWith(Beautifier.specificPrefix)) {
-            element.style.backgroundColor = bgColor;
+        const background = getComputedStyle(element).backgroundColor;
+        if (background !== 'rgba(0, 0, 0, 0)' && !background.startsWith('rgba(132, 133, 141,')) {
+            if (!element.dataset.beautified) {
+                element.dataset.beautifierBackground = element.style.backgroundColor;
+            }
+            element.style.backgroundColor = color;
             element.dataset.beautified = 'true';
             element.dataset.beautifierTheme = theme;
         }
     }
 
-    rewriteSubtree(root) {
+    rewriteTree(root) {
         if (!(root instanceof Element)) {
             return;
         }
 
-        this.rewriteElement(root);
-        root.querySelectorAll('*').forEach(element => this.rewriteElement(element));
+        this.rewrite(root);
+        root.querySelectorAll('*').forEach(element => this.rewrite(element));
     }
 
     schedule(root = document.body) {
-        if (!root || !this.shouldBeautifyPath()) {
+        if (!(root instanceof Element) || !this.isEnabled()) {
             return;
         }
 
-        this.pendingElements.add(root);
-
-        if (!this.frameId) {
-            this.frameId = requestAnimationFrame(() => {
-                this.frameId = 0;
-
-                if (!this.shouldBeautifyPath()) {
-                    this.pendingElements.clear();
-                    return;
-                }
-
-                const roots = [...this.pendingElements];
-                this.pendingElements.clear();
-                roots.forEach(element => this.rewriteSubtree(element));
-            });
+        this.pending.add(root);
+        if (this.frame) {
+            return;
         }
-    }
 
-    handleMutations(records) {
-        records.forEach(record => {
-            if (record.type === 'attributes') {
-                this.schedule(record.target);
+        this.frame = requestAnimationFrame(() => {
+            this.frame = 0;
+            if (!this.isEnabled()) {
+                this.pending.clear();
                 return;
             }
 
-            record.addedNodes.forEach(node => {
-                if (node instanceof Element) {
-                    this.schedule(node);
-                }
-            });
+            const roots = [...this.pending];
+            this.pending.clear();
+            roots.forEach(root => this.rewriteTree(root));
         });
     }
 
     observe() {
-        if (!document.body) {
+        if (!document.body || !this.isEnabled()) {
             return;
         }
 
         this.disconnect();
-
-        this.observer = new MutationObserver(this.handleMutations);
         this.observer.observe(document.body, {
             attributes: true,
             attributeFilter: ['class'],
             childList: true,
             subtree: true
         });
-
         this.schedule();
     }
 
     disconnect() {
-        if (this.observer) {
-            this.observer.disconnect();
-            this.observer = null;
+        this.observer.disconnect();
+        if (this.frame) {
+            cancelAnimationFrame(this.frame);
+            this.frame = 0;
         }
-
-        if (this.frameId) {
-            cancelAnimationFrame(this.frameId);
-            this.frameId = 0;
-        }
-
-        this.pendingElements.clear();
+        this.pending.clear();
     }
 
     undo() {
         this.disconnect();
-
-        document.body.querySelectorAll('[data-beautified]').forEach(element => {
-            element.style.backgroundColor = '';
-
+        document.querySelectorAll('[data-beautified]').forEach(element => {
+            element.style.backgroundColor = element.dataset.beautifierBackground || '';
             element.removeAttribute('data-beautified');
+            element.removeAttribute('data-beautifier-background');
             element.removeAttribute('data-beautifier-theme');
         });
     }
 }
 
 const beautifier = new Beautifier();
+const syncRoute = () => beautifier.isEnabled() ? beautifier.observe() : beautifier.undo();
+
 window.beautifier = beautifier;
-
-beautifier.observe();
-
-// 一个愚蠢到有点无敌的修复机制，不过工作良好
-(() => {
-    function fixLogin(pathname) {
-        if (pathname.startsWith('/@login')) {
-            beautifier.undo();
-        }
-        else {
-            beautifier.disconnect();
-            beautifier.observe();
-        }
-    }
-
-    ['popstate', 'pushState', 'replaceState'].forEach(eventType => {
-        addEventListener(eventType, () => {
-            fixLogin(location.pathname);
-        });
-    });
-})();
+addEventListener('popstate', syncRoute);
+addEventListener('beautifier:navigate', syncRoute);
+syncRoute();

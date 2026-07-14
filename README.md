@@ -1,29 +1,38 @@
-# ALIST-BEAUTIFICATION
+# OpenList Beautification
 
-这是一个alist/openlist美化代码存储库，但特别的是，它提供了一种与传统美化代码不同的、全新的实现原理。
+这是一个面向 OpenList 的轻量美化代码仓库。它不枚举每一个前端组件，而是监听 DOM 变化，只替换已有背景色的节点，因此在 OpenList 前端更新后通常仍能继续工作。
 
-事实上，它并非是按照以往的做法，对alist/openlist的前端元素进行枚举修改，而是加载了一个动态的美化监视器，自动地对带有背景色的元素进行替换颜色，从而在alist/openlist前端功能更新时有更好的适应性。
+当前实现会在首次加载时扫描页面，之后仅处理新增节点或主题 class 变化，并用 `requestAnimationFrame` 合并同一帧内的更新。管理页始终停用美化；普通版同时排除登录页，登录版则会美化登录页。
 
-当前版本会在首次加载时扫描页面，之后只处理新增或主题 class 变化的节点，并用 `requestAnimationFrame` 合并同一帧内的多次 DOM 变化，减少目录列表和路由切换时的重复计算。
+## 依赖与兼容性
 
-可以在[我的文章](https://blog.mmoe.work/alist-js-beautification/)查看相关介绍。
+依赖审计日期：2026-07-14。
 
-## 组件
+- 项目没有 npm、Python、Rust 等本地包管理依赖，也不需要构建步骤。
+- 已按 [OpenList Frontend 4.2.3](https://github.com/OpenListTeam/OpenList-Frontend/blob/main/package.json) 的页面结构验证。
+- 自定义字体使用 `lxgw-wenkai-webfont@1.7.0`；它仍是该 Webfont 包的[最新版本](https://github.com/chawyehsu/lxgw-wenkai-webfont/releases/tag/lxgw-wenkai-webfont%401.7.0)。
+- `head.html` 还会加载 `cdn.mmoe.work` 上的背景图片；`body_with_login.html` 会加载萌备案相关链接和图标。
 
-- `head.html`: 自定义头部，不过事实上与这个项目的主体没有什么关系，是自定义字体一类的传统的美化代码。它会预连接字体和背景图域名，并延后加载字体样式以减少首屏阻塞。
-- `body.html`: 自定义内容，这个项目的核心，包含了动态美化监视器。
-- `src/beautifier.js`: 动态美化监视器的js代码， 是`body.html`的一部分。
+## 文件
+
+- `head.html`：字体、背景图和基础页面样式。
+- `body.html`：默认动态美化器，不处理登录页和管理页。
+- `body_with_login.html`：包含登录页与页脚美化，只排除管理页。
+- `src/beautifier.js`：`body.html` 中美化器的独立版本。
+- `src/beautifier_with_login.js`：允许登录页美化的独立版本。
 
 ## 使用方法
 
-直接将`head.html`和`body.html`的内容复制到alist的自定义头部和自定义内容中即可（位于`/设置/全局`中）
+按照 [OpenList 全局设置文档](https://docs.openlist.team/config/global.html)，把 `head.html` 和以下二选一文件粘贴到对应设置中：
 
-### 通过cdn引入
+- 默认方案：使用 `body.html`。
+- 需要美化登录页：使用 `body_with_login.html`。
 
- 如果你只需要美化alist背景色，而不需要自定义头部提供的功能，可以直接从cdn引入`beautifier.js`：
+### 仅通过 CDN 引入美化器
+
+如果只需要背景色美化，可以使用当前仓库的脚本：
 
 ```html
-<!-- 修正部分区域的透明 -->
 <style>
     .hope-ui-light,
     .hope-ui-dark {
@@ -31,43 +40,36 @@
     }
 </style>
 
-<script type="module" src="https://fastly.jsdelivr.net/gh/adogecheems/alist-beautification@latest/src/beautifier.js"></script>
+<script type="module" src="https://fastly.jsdelivr.net/gh/YaleCheng404/openlist-beautification@main/src/beautifier.js"></script>
 ```
+
+生产环境如需完全固定内容，可把 URL 中的 `main` 换成具体提交哈希。
 
 ### 控制台
 
-美化器实例暴露了三个方法：
+实例通过 `window.beautifier` 暴露：
 
-- `observe()`: 开始监听页面变化并美化背景色
-- `disconnect()`: 停止监听页面变化
-- `undo()`: 恢复页面背景色到默认状态
+- `observe()`：开始监听并美化。
+- `disconnect()`：停止监听。
+- `undo()`：停止监听并清除已应用的背景色。
 
-你可以通过window对象访问美化器实例，比如在控制台中输入以下命令可以完全消除美化效果：
+例如：
 
 ```javascript
 window.beautifier.undo();
 ```
 
-### 对默认背景色不满意？
+### 修改颜色
 
-在`body.html`的第58行附近（在`beautifier.js`中是47行）找到以下代码，你可以修改这些变量来调整默认背景色：
+在 `body.html` 或对应的 `src/*.js` 中修改 `COLORS`：
 
 ```javascript
-static lightBgColor = 'rgba(255, 255, 255, 0.8)';
-static darkBgColor = 'rgb(32, 36, 37)';
-//                                         ^
-// 这里可以修改为你想要的默认背景色
-//比如为黑夜模式也加入半透明：
-static lightBgColor = 'rgba(255, 255, 255, 0.8)';
-static darkBgColor = 'rgba(32, 36, 37, 0.8)';
+const COLORS = {
+    light: 'rgba(255, 255, 255, 0.8)',
+    dark: 'rgb(32, 36, 37)'
+};
 ```
-
-## 对登录界面的美化
-
-如果你想要对alist的登录界面进行美化，可以使用`body_with_login.html`替换`body.html`的内容。
 
 ## 关于
 
-对你有用的话，就请给我点个star支持一下吧！  
-作者：adogecheems  
-许可：AGPL-3.0
+原理介绍见[作者文章](https://blog.mmoe.work/alist-js-beautification/)。项目采用 AGPL-3.0 许可。
